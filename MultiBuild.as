@@ -16,4 +16,11 @@ void main(MultiBuild::Workspace& workspace) {
 		"./source/*.h",
 		"./source/*.c"
 	});
+
+	properties.defines("PLUTOVG_BUILD");
+
+	{
+		MultiBuild::ScopedFilter _(project, "project.compiler:VisualCpp");
+		properties.disable_warnings({ "4244", "4267", "4018", "4996" });
+	}
 }
