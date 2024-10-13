@@ -13,6 +13,7 @@ void main(MultiBuild::Workspace& workspace) {
 
 	properties.files({
 		"./include/*.h",
+		"./source/*.h",
 		"./source/*.c"
 	});
 }
