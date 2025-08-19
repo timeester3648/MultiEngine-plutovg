@@ -17,7 +17,10 @@ void main(MultiBuild::Workspace& workspace) {
 		"./source/*.c"
 	});
 
-	properties.defines("PLUTOVG_BUILD");
+	properties.defines({ 
+		"PLUTOVG_BUILD",
+		"PLUTOVG_BUILD_STATIC"
+	});
 
 	{
 		MultiBuild::ScopedFilter _(project, "project.compiler:VisualCpp");
