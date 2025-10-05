@@ -25,6 +25,10 @@
 
 #include <stdbool.h>
 
+#ifndef PLUTOVG_BUILD_STATIC
+	#define PLUTOVG_BUILD_STATIC
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
