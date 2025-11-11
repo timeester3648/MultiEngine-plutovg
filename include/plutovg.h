@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020-2024 Samuel Ugochukwu <sammycageagle@gmail.com>
+ * Copyright (c) 2020-2025 Samuel Ugochukwu <sammycageagle@gmail.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -33,7 +33,10 @@
 extern "C" {
 #endif
 
-#if !defined(PLUTOVG_BUILD_STATIC) && (defined(_WIN32) || defined(__CYGWIN__))
+#if defined(PLUTOVG_BUILD_STATIC)
+#define PLUTOVG_EXPORT
+#define PLUTOVG_IMPORT
+#elif (defined(_WIN32) || defined(__CYGWIN__))
 #define PLUTOVG_EXPORT __declspec(dllexport)
 #define PLUTOVG_IMPORT __declspec(dllimport)
 #elif defined(__GNUC__) && (__GNUC__ >= 4)
@@ -50,9 +53,9 @@ extern "C" {
 #define PLUTOVG_API PLUTOVG_IMPORT
 #endif
 
-#define PLUTOVG_VERSION_MAJOR 0
-#define PLUTOVG_VERSION_MINOR 0
-#define PLUTOVG_VERSION_MICRO 7
+#define PLUTOVG_VERSION_MAJOR 1
+#define PLUTOVG_VERSION_MINOR 3
+#define PLUTOVG_VERSION_MICRO 1
 
 #define PLUTOVG_VERSION_ENCODE(major, minor, micro) (((major) * 10000) + ((minor) * 100) + ((micro) * 1))
 #define PLUTOVG_VERSION PLUTOVG_VERSION_ENCODE(PLUTOVG_VERSION_MAJOR, PLUTOVG_VERSION_MINOR, PLUTOVG_VERSION_MICRO)
@@ -105,6 +108,7 @@ typedef struct plutovg_point {
 } plutovg_point_t;
 
 #define PLUTOVG_MAKE_POINT(x, y) ((plutovg_point_t){x, y})
+#define PLUTOVG_EMPTY_POINT PLUTOVG_MAKE_POINT(0, 0)
 
 /**
  * @brief A structure representing a rectangle in 2D space.
@@ -117,6 +121,7 @@ typedef struct plutovg_rect {
 } plutovg_rect_t;
 
 #define PLUTOVG_MAKE_RECT(x, y, w, h) ((plutovg_rect_t){x, y, w, h})
+#define PLUTOVG_EMPTY_RECT PLUTOVG_MAKE_RECT(0, 0, 0, 0)
 
 /**
  * @brief A structure representing a 2D transformation matrix.
@@ -131,7 +136,6 @@ typedef struct plutovg_matrix {
 } plutovg_matrix_t;
 
 #define PLUTOVG_MAKE_MATRIX(a, b, c, d, e, f) ((plutovg_matrix_t){a, b, c, d, e, f})
-
 #define PLUTOVG_MAKE_SCALE(x, y) PLUTOVG_MAKE_MATRIX(x, 0, 0, y, 0, 0)
 #define PLUTOVG_MAKE_TRANSLATE(x, y) PLUTOVG_MAKE_MATRIX(1, 0, 0, 1, x, y)
 #define PLUTOVG_IDENTITY_MATRIX PLUTOVG_MAKE_MATRIX(1, 0, 0, 1, 0, 0)
@@ -733,10 +737,10 @@ PLUTOVG_API bool plutovg_path_parse(plutovg_path_t* path, const char* data, int 
  * @brief Text encodings used for converting text data to code points.
  */
 typedef enum plutovg_text_encoding {
+    PLUTOVG_TEXT_ENCODING_LATIN1, ///< Latin-1 encoding
     PLUTOVG_TEXT_ENCODING_UTF8, ///< UTF-8 encoding
     PLUTOVG_TEXT_ENCODING_UTF16, ///< UTF-16 encoding
-    PLUTOVG_TEXT_ENCODING_UTF32, ///< UTF-32 encoding
-    PLUTOVG_TEXT_ENCODING_LATIN1 ///< Latin-1 encoding
+    PLUTOVG_TEXT_ENCODING_UTF32 ///< UTF-32 encoding
 } plutovg_text_encoding_t;
 
 /**
@@ -894,6 +898,113 @@ PLUTOVG_API float plutovg_font_face_traverse_glyph_path(plutovg_font_face_t* fac
 PLUTOVG_API float plutovg_font_face_text_extents(plutovg_font_face_t* face, float size, const void* text, int length, plutovg_text_encoding_t encoding, plutovg_rect_t* extents);
 
 /**
+ * @brief Represents a cache of loaded font faces.
+ */
+typedef struct plutovg_font_face_cache plutovg_font_face_cache_t;
+
+/**
+ * @brief Create a new, empty font‐face cache.
+ *
+ * @return Pointer to a newly allocated `plutovg_font_face_cache_t` object.
+ */
+PLUTOVG_API plutovg_font_face_cache_t* plutovg_font_face_cache_create(void);
+
+/**
+ * @brief Increments the reference count of a font‐face cache.
+ *
+ * @param cache A pointer to a `plutovg_font_face_cache_t` object.
+ * @return A pointer to the same `plutovg_font_face_cache_t` object with an incremented reference count.
+ */
+PLUTOVG_API plutovg_font_face_cache_t* plutovg_font_face_cache_reference(plutovg_font_face_cache_t* cache);
+
+/**
+ * @brief Decrement the reference count of a font‐face cache and destroy it when it reaches zero.
+ *
+ * @param cache A pointer to a `plutovg_font_face_cache_t` object to release.
+ */
+PLUTOVG_API void plutovg_font_face_cache_destroy(plutovg_font_face_cache_t* cache);
+
+/**
+ * @brief Retrieve the current reference count of a font‐face cache.
+ *
+ * @param cache A pointer to a `plutovg_font_face_cache_t` object.
+ * @return The current reference count, or 0 if cache is NULL.
+ */
+PLUTOVG_API int plutovg_font_face_cache_reference_count(const plutovg_font_face_cache_t* cache);
+
+/**
+ * @brief Remove all entries from a font‐face cache.
+ *
+ * @param cache A pointer to a `plutovg_font_face_cache_t` object to reset.
+ */
+PLUTOVG_API void plutovg_font_face_cache_reset(plutovg_font_face_cache_t* cache);
+
+/**
+ * @brief Add a font face to the cache with the specified family and style.
+ *
+ * @param cache A pointer to a `plutovg_font_face_cache_t` object.
+ * @param family The font family name.
+ * @param bold Whether the font is bold.
+ * @param italic Whether the font is italic.
+ * @param face A pointer to the `plutovg_font_face_t` to add. The cache increments its reference count.
+ */
+PLUTOVG_API void plutovg_font_face_cache_add(plutovg_font_face_cache_t* cache, const char* family, bool bold, bool italic, plutovg_font_face_t* face);
+
+/**
+ * @brief Load a font face from a file and add it to the cache with the specified family and style.
+ *
+ * @param cache A pointer to a `plutovg_font_face_cache_t` object.
+ * @param family The font family name to associate with the face.
+ * @param bold Whether the font is bold.
+ * @param italic Whether the font is italic.
+ * @param filename Path to the font file.
+ * @param ttcindex Index of the face in a TrueType collection (use 0 for non-TTC fonts).
+ * @return `true` on success, `false` if the file could not be loaded.
+ */
+PLUTOVG_API bool plutovg_font_face_cache_add_file(plutovg_font_face_cache_t* cache, const char* family, bool bold, bool italic, const char* filename, int ttcindex);
+
+/**
+ * @brief Retrieve a font face from the cache by family and style.
+ *
+ * @param cache A pointer to a `plutovg_font_face_cache_t` object.
+ * @param family The font family name.
+ * @param bold Whether the font is bold.
+ * @param italic Whether the font is italic.
+ * @return A pointer to the matching `plutovg_font_face_t` object, or NULL if not found. The returned face is owned by the cache and must not be destroyed by the caller.
+ */
+PLUTOVG_API plutovg_font_face_t* plutovg_font_face_cache_get(plutovg_font_face_cache_t* cache, const char* family, bool bold, bool italic);
+
+/**
+ * @brief Load all font faces from a file and add them to the cache.
+ *
+ * @param cache A pointer to a `plutovg_font_face_cache_t` object.
+ * @param filename Path to the font file (TrueType, OpenType, or font collection).
+ * @return The number of faces successfully loaded, or `-1` if font face cache loading is disabled.
+ */
+PLUTOVG_API int plutovg_font_face_cache_load_file(plutovg_font_face_cache_t* cache, const char* filename);
+
+/**
+ * @brief Load all font faces from files in a directory recursively and add them to the cache.
+ * 
+ * This scans the specified directory recursively and loads all supported font files.
+ * 
+ * @param cache A pointer to a `plutovg_font_face_cache_t` object.
+ * @param dirname Path to the directory containing font files.
+ * @return The number of faces successfully loaded, or `-1` if font face cache loading is disabled.
+ */
+PLUTOVG_API int plutovg_font_face_cache_load_dir(plutovg_font_face_cache_t* cache, const char* dirname);
+
+/**
+ * @brief Load all available system font faces and add them to the cache.
+ *
+ * This scans standard system font directories recursively and loads all supported font files.
+ * 
+ * @param cache A pointer to a `plutovg_font_face_cache_t` object.
+ * @return The number of faces successfully loaded, or `-1` if font face cache loading is disabled.
+ */
+PLUTOVG_API int plutovg_font_face_cache_load_sys(plutovg_font_face_cache_t* cache);
+
+/**
  * @brief Represents a color with red, green, blue, and alpha components.
  */
 typedef struct plutovg_color {
@@ -973,6 +1084,27 @@ PLUTOVG_API void plutovg_color_init_rgba32(plutovg_color_t* color, unsigned int 
 PLUTOVG_API void plutovg_color_init_argb32(plutovg_color_t* color, unsigned int value);
 
 /**
+ * @brief Initializes a color with the specified HSL color values.
+ *
+ * @param color A pointer to a `plutovg_color_t` object.
+ * @param h Hue component in degrees (0 to 360).
+ * @param s Saturation component (0 to 1).
+ * @param l Lightness component (0 to 1).
+ */
+PLUTOVG_API void plutovg_color_init_hsl(plutovg_color_t* color, float h, float s, float l);
+
+/**
+ * @brief Initializes a color with the specified HSLA color values.
+ *
+ * @param color A pointer to a `plutovg_color_t` object.
+ * @param h Hue component in degrees (0 to 360).
+ * @param s Saturation component (0 to 1).
+ * @param l Lightness component (0 to 1).
+ * @param a Alpha component (0 to 1).
+ */
+PLUTOVG_API void plutovg_color_init_hsla(plutovg_color_t* color, float h, float s, float l, float a);
+
+/**
  * @brief Converts a color to a 32-bit unsigned RGBA value.
  * 
  * @param color A pointer to a `plutovg_color_t` object.
@@ -1004,9 +1136,9 @@ PLUTOVG_API int plutovg_color_parse(plutovg_color_t* color, const char* data, in
 /**
  * @brief Represents an image surface for drawing operations.
  *
- * The pixel data is stored in a premultiplied 32-bit ARGB format (0xAARRGGBB).
- * The red, green, and blue channels are multiplied by the alpha component divided by 255.
- * Premultiplied ARGB32 is beneficial for faster operations such as alpha blending.
+ * Stores pixel data in a 32-bit premultiplied ARGB format (0xAARRGGBB),
+ * where red, green, and blue channels are multiplied by the alpha channel
+ * and divided by 255.
  */
 typedef struct plutovg_surface plutovg_surface_t;
 
@@ -1112,9 +1244,10 @@ PLUTOVG_API int plutovg_surface_get_height(const plutovg_surface_t* surface);
 PLUTOVG_API int plutovg_surface_get_stride(const plutovg_surface_t* surface);
 
 /**
- * @brief plutovg_surface_clear
- * @param surface
- * @param color
+ * @brief Clears the entire surface with the specified color.
+ *
+ * @param surface Pointer to the target surface.
+ * @param color Pointer to the color used for clearing.
  */
 PLUTOVG_API void plutovg_surface_clear(plutovg_surface_t* surface, const plutovg_color_t* color);
 
@@ -1159,24 +1292,30 @@ PLUTOVG_API bool plutovg_surface_write_to_png_stream(const plutovg_surface_t* su
 PLUTOVG_API bool plutovg_surface_write_to_jpg_stream(const plutovg_surface_t* surface, plutovg_write_func_t write_func, void* closure, int quality);
 
 /**
- * @brief Converts ARGB Premultiplied to RGBA Plain.
+ * @brief Converts pixel data from premultiplied ARGB to RGBA format.
  *
- * @param dst Destination buffer (can be the same as `src`).
- * @param src Source buffer (ARGB Premultiplied).
+ * Transforms pixel data from native-endian 32-bit ARGB premultiplied format
+ * to a non-premultiplied RGBA byte sequence.
+ *
+ * @param dst Pointer to the destination buffer (can overlap with `src`).
+ * @param src Pointer to the source buffer in ARGB premultiplied format.
  * @param width Image width in pixels.
  * @param height Image height in pixels.
- * @param stride Image stride in bytes.
+ * @param stride Number of bytes per image row in the buffers.
  */
 PLUTOVG_API void plutovg_convert_argb_to_rgba(unsigned char* dst, const unsigned char* src, int width, int height, int stride);
 
 /**
- * @brief Converts RGBA Plain to ARGB Premultiplied.
+ * @brief Converts pixel data from RGBA to premultiplied ARGB format.
  *
- * @param dst Destination buffer (can be the same as `src`).
- * @param src Source buffer (RGBA Plain).
+ * Transforms pixel data from a non-premultiplied RGBA byte sequence
+ * to a native-endian 32-bit ARGB premultiplied format.
+ *
+ * @param dst Pointer to the destination buffer (can overlap with `src`).
+ * @param src Pointer to the source buffer in RGBA format.
  * @param width Image width in pixels.
  * @param height Image height in pixels.
- * @param stride Image stride in bytes.
+ * @param stride Number of bytes per image row in the buffers.
  */
 PLUTOVG_API void plutovg_convert_rgba_to_argb(unsigned char* dst, const unsigned char* src, int width, int height, int stride);
 
@@ -1319,10 +1458,18 @@ typedef enum {
  * @brief Defines compositing operations.
  */
 typedef enum {
-    PLUTOVG_OPERATOR_SRC, ///< Source replaces destination.
-    PLUTOVG_OPERATOR_SRC_OVER, ///< Source over destination.
-    PLUTOVG_OPERATOR_DST_IN, ///< Destination within source.
-    PLUTOVG_OPERATOR_DST_OUT ///< Destination outside source.
+    PLUTOVG_OPERATOR_CLEAR,       ///< Clears the destination (resulting in a fully transparent image).
+    PLUTOVG_OPERATOR_SRC,         ///< Source replaces destination.
+    PLUTOVG_OPERATOR_DST,         ///< Destination is kept, source is ignored.
+    PLUTOVG_OPERATOR_SRC_OVER,    ///< Source is composited over destination.
+    PLUTOVG_OPERATOR_DST_OVER,    ///< Destination is composited over source.
+    PLUTOVG_OPERATOR_SRC_IN,      ///< Source within destination (only the overlapping part of source is shown).
+    PLUTOVG_OPERATOR_DST_IN,      ///< Destination within source.
+    PLUTOVG_OPERATOR_SRC_OUT,     ///< Source outside destination (non-overlapping part of source is shown).
+    PLUTOVG_OPERATOR_DST_OUT,     ///< Destination outside source.
+    PLUTOVG_OPERATOR_SRC_ATOP,    ///< Source atop destination (source shown over destination but only in the destination's bounds).
+    PLUTOVG_OPERATOR_DST_ATOP,    ///< Destination atop source (destination shown over source but only in the source's bounds).
+    PLUTOVG_OPERATOR_XOR          ///< Source and destination are combined, but their overlapping regions are cleared.
 } plutovg_operator_t;
 
 /**
@@ -1404,6 +1551,8 @@ PLUTOVG_API void plutovg_canvas_restore(plutovg_canvas_t* canvas);
 /**
  * @brief Sets the current paint to a solid color.
  *
+ * If not set, the default paint is opaque black color.
+ *
  * @param canvas A pointer to a `plutovg_canvas_t` object.
  * @param r The red component (0 to 1).
  * @param g The green component (0 to 1).
@@ -1413,6 +1562,8 @@ PLUTOVG_API void plutovg_canvas_set_rgb(plutovg_canvas_t* canvas, float r, float
 
 /**
  * @brief Sets the current paint to a solid color.
+ *
+ * If not set, the default paint is opaque black color.
  *
  * @param canvas A pointer to a `plutovg_canvas_t` object.
  * @param r The red component (0 to 1).
@@ -1425,6 +1576,8 @@ PLUTOVG_API void plutovg_canvas_set_rgba(plutovg_canvas_t* canvas, float r, floa
 /**
  * @brief Sets the current paint to a solid color.
  *
+ * If not set, the default paint is opaque black color.
+ *
  * @param canvas A pointer to a `plutovg_canvas_t` object.
  * @param color A pointer to a `plutovg_color_t` object.
  */
@@ -1432,6 +1585,8 @@ PLUTOVG_API void plutovg_canvas_set_color(plutovg_canvas_t* canvas, const plutov
 
 /**
  * @brief Sets the current paint to a linear gradient.
+ *
+ * If not set, the default paint is opaque black color.
  *
  * @param canvas A pointer to a `plutovg_canvas_t` object.
  * @param x1 The x coordinate of the start point.
@@ -1448,6 +1603,8 @@ PLUTOVG_API void plutovg_canvas_set_linear_gradient(plutovg_canvas_t* canvas, fl
 
 /**
  * @brief Sets the current paint to a radial gradient.
+ *
+ * If not set, the default paint is opaque black color.
  *
  * @param canvas A pointer to a `plutovg_canvas_t` object.
  * @param cx The x coordinate of the center.
@@ -1467,6 +1624,8 @@ PLUTOVG_API void plutovg_canvas_set_radial_gradient(plutovg_canvas_t* canvas, fl
 /**
  * @brief Sets the current paint to a texture.
  *
+ * If not set, the default paint is opaque black color.
+ *
  * @param canvas A pointer to a `plutovg_canvas_t` object.
  * @param surface The texture surface.
  * @param type The texture type (plain or tiled).
@@ -1478,6 +1637,8 @@ PLUTOVG_API void plutovg_canvas_set_texture(plutovg_canvas_t* canvas, plutovg_su
 /**
  * @brief Sets the current paint.
  *
+ * If not set, the default paint is opaque black color.
+ *
  * @param canvas A pointer to a `plutovg_canvas_t` object.
  * @param paint The paint to be used for subsequent drawing operations.
  */
@@ -1486,6 +1647,8 @@ PLUTOVG_API void plutovg_canvas_set_paint(plutovg_canvas_t* canvas, plutovg_pain
 /**
  * @brief Retrieves the current paint.
  *
+ * If not set, the default paint is opaque black color.
+ *
  * @param canvas A pointer to a `plutovg_canvas_t` object.
  * @param color A pointer to a `plutovg_color_t` object where the current color will be stored.
  * @return The current `plutovg_paint_t` used for drawing operations. If no paint is set, `NULL` is returned.
@@ -1493,7 +1656,60 @@ PLUTOVG_API void plutovg_canvas_set_paint(plutovg_canvas_t* canvas, plutovg_pain
 PLUTOVG_API plutovg_paint_t* plutovg_canvas_get_paint(const plutovg_canvas_t* canvas, plutovg_color_t* color);
 
 /**
+ * @brief Assigns a font-face cache to the canvas for font management.
+ *
+ * @param canvas A pointer to a `plutovg_canvas_t` object.
+ * @param cache A pointer to a `plutovg_font_face_cache_t` object, or NULL to unset the current cache.
+ */
+PLUTOVG_API void plutovg_canvas_set_font_face_cache(plutovg_canvas_t* canvas, plutovg_font_face_cache_t* cache);
+
+/**
+ * @brief Returns the font-face cache associated with the canvas.
+ *
+ * @param canvas A pointer to a `plutovg_canvas_t` object.
+ * @return A pointer to the associated `plutovg_font_face_cache_t` object, or NULL if none is set.
+ */
+PLUTOVG_API plutovg_font_face_cache_t* plutovg_canvas_get_font_face_cache(const plutovg_canvas_t* canvas);
+
+/**
+ * @brief Add a font face to the canvas using the specified family and style.
+ *
+ * @param canvas A pointer to a `plutovg_canvas_t` object.
+ * @param family The font family name to associate with the face.
+ * @param bold Whether the font is bold.
+ * @param italic Whether the font is italic.
+ * @param face A pointer to the `plutovg_font_face_t` object to add.
+ */
+PLUTOVG_API void plutovg_canvas_add_font_face(plutovg_canvas_t* canvas, const char* family, bool bold, bool italic, plutovg_font_face_t* face);
+
+/**
+ * @brief Load a font face from a file and add it to the canvas using the specified family and style.
+ *
+ * @param canvas A pointer to a `plutovg_canvas_t` object.
+ * @param family The font family name to associate with the face.
+ * @param bold Whether the font is bold.
+ * @param italic Whether the font is italic.
+ * @param filename Path to the font file.
+ * @param ttcindex Index within a TrueType Collection (use 0 for regular font files).
+ * @return `true` on success, or `false` if the font could not be loaded.
+ */
+PLUTOVG_API bool plutovg_canvas_add_font_file(plutovg_canvas_t* canvas, const char* family, bool bold, bool italic, const char* filename, int ttcindex);
+
+/**
+ * @brief Selects and sets the current font face on the canvas.
+ *
+ * @param canvas A pointer to a `plutovg_canvas_t` object.
+ * @param family The font family name to select.
+ * @param bold Whether to match a bold variant.
+ * @param italic Whether to match an italic variant.
+ * @return `true` if a matching font was found and set, `false` otherwise.
+ */
+PLUTOVG_API bool plutovg_canvas_select_font_face(plutovg_canvas_t* canvas, const char* family, bool bold, bool italic);
+
+/**
  * @brief Sets the font face and size for text rendering on the canvas.
+ *
+ * If not set, the default font face is `NULL`, and the default face size is 12.
  *
  * @param canvas A pointer to a `plutovg_canvas_t` object.
  * @param face A pointer to a `plutovg_font_face_t` object representing the font face to use.
@@ -1504,6 +1720,8 @@ PLUTOVG_API void plutovg_canvas_set_font(plutovg_canvas_t* canvas, plutovg_font_
 /**
  * @brief Sets the font face for text rendering on the canvas.
  *
+ * If not set, the default font face is `NULL`.
+ *
  * @param canvas A pointer to a `plutovg_canvas_t` object.
  * @param face A pointer to a `plutovg_font_face_t` object representing the font face to use.
  */
@@ -1511,6 +1729,8 @@ PLUTOVG_API void plutovg_canvas_set_font_face(plutovg_canvas_t* canvas, plutovg_
 
 /**
  * @brief Retrieves the current font face used for text rendering on the canvas.
+ *
+ * If not set, the default font face is `NULL`.
  *
  * @param canvas A pointer to a `plutovg_canvas_t` object.
  * @return A pointer to a `plutovg_font_face_t` object representing the current font face.
@@ -1520,6 +1740,8 @@ PLUTOVG_API plutovg_font_face_t* plutovg_canvas_get_font_face(const plutovg_canv
 /**
  * @brief Sets the font size for text rendering on the canvas.
  *
+ * If not set, the default font size is 12.
+ *
  * @param canvas A pointer to a `plutovg_canvas_t` object.
  * @param size The size of the font, in pixels. This value defines the height of the rendered text.
  */
@@ -1528,6 +1750,8 @@ PLUTOVG_API void plutovg_canvas_set_font_size(plutovg_canvas_t* canvas, float si
 /**
  * @brief Retrieves the current font size used for text rendering on the canvas.
  *
+ * If not set, the default font size is 12.
+ *
  * @param canvas A pointer to a `plutovg_canvas_t` object.
  * @return The current font size, in pixels. This value represents the height of the rendered text.
  */
@@ -1535,6 +1759,9 @@ PLUTOVG_API float plutovg_canvas_get_font_size(const plutovg_canvas_t* canvas);
 
 /**
  * @brief Sets the fill rule.
+ *
+ * If not set, the default fill rule is `PLUTOVG_FILL_RULE_NON_ZERO`.
+ *
  * @param canvas A pointer to a `plutovg_canvas_t` object.
  * @param winding The fill rule.
  */
@@ -1542,6 +1769,9 @@ PLUTOVG_API void plutovg_canvas_set_fill_rule(plutovg_canvas_t* canvas, plutovg_
 
 /**
  * @brief Retrieves the current fill rule.
+ *
+ * If not set, the default fill rule is `PLUTOVG_FILL_RULE_NON_ZERO`.
+ *
  * @param canvas A pointer to a `plutovg_canvas_t` object.
  * @return The current fill rule.
  */
@@ -1549,6 +1779,9 @@ PLUTOVG_API plutovg_fill_rule_t plutovg_canvas_get_fill_rule(const plutovg_canva
 
 /**
  * @brief Sets the compositing operator.
+ *
+ * If not set, the default compositing operator is `PLUTOVG_OPERATOR_SRC_OVER`.
+ *
  * @param canvas A pointer to a `plutovg_canvas_t` object.
  * @param op The compositing operator.
  */
@@ -1556,6 +1789,9 @@ PLUTOVG_API void plutovg_canvas_set_operator(plutovg_canvas_t* canvas, plutovg_o
 
 /**
  * @brief Retrieves the current compositing operator.
+ *
+ * If not set, the default compositing operator is `PLUTOVG_OPERATOR_SRC_OVER`.
+ *
  * @param canvas A pointer to a `plutovg_canvas_t` object.
  * @return The current compositing operator.
  */
@@ -1563,6 +1799,9 @@ PLUTOVG_API plutovg_operator_t plutovg_canvas_get_operator(const plutovg_canvas_
 
 /**
  * @brief Sets the global opacity.
+ *
+ * If not set, the default global opacity is 1.
+ *
  * @param canvas A pointer to a `plutovg_canvas_t` object.
  * @param opacity The opacity value (0 to 1).
  */
@@ -1570,6 +1809,9 @@ PLUTOVG_API void plutovg_canvas_set_opacity(plutovg_canvas_t* canvas, float opac
 
 /**
  * @brief Retrieves the current global opacity.
+ *
+ * If not set, the default global opacity is 1.
+ *
  * @param canvas A pointer to a `plutovg_canvas_t` object.
  * @return The current opacity value.
  */
@@ -1577,6 +1819,9 @@ PLUTOVG_API float plutovg_canvas_get_opacity(const plutovg_canvas_t* canvas);
 
 /**
  * @brief Sets the line width.
+ *
+ * If not set, the default line width is 1.
+ *
  * @param canvas A pointer to a `plutovg_canvas_t` object.
  * @param line_width The width of the stroke.
  */
@@ -1584,6 +1829,9 @@ PLUTOVG_API void plutovg_canvas_set_line_width(plutovg_canvas_t* canvas, float l
 
 /**
  * @brief Retrieves the current line width.
+ *
+ * If not set, the default line width is 1.
+ *
  * @param canvas A pointer to a `plutovg_canvas_t` object.
  * @return The current line width.
  */
@@ -1591,6 +1839,9 @@ PLUTOVG_API float plutovg_canvas_get_line_width(const plutovg_canvas_t* canvas);
 
 /**
  * @brief Sets the line cap style.
+ *
+ * If not set, the default line cap is `PLUTOVG_LINE_CAP_BUTT`.
+ *
  * @param canvas A pointer to a `plutovg_canvas_t` object.
  * @param line_cap The line cap style.
  */
@@ -1598,6 +1849,9 @@ PLUTOVG_API void plutovg_canvas_set_line_cap(plutovg_canvas_t* canvas, plutovg_l
 
 /**
  * @brief Retrieves the current line cap style.
+ *
+ * If not set, the default line cap is `PLUTOVG_LINE_CAP_BUTT`.
+ *
  * @param canvas A pointer to a `plutovg_canvas_t` object.
  * @return The current line cap style.
  */
@@ -1605,6 +1859,9 @@ PLUTOVG_API plutovg_line_cap_t plutovg_canvas_get_line_cap(const plutovg_canvas_
 
 /**
  * @brief Sets the line join style.
+ *
+ * If not set, the default line join is `PLUTOVG_LINE_JOIN_MITER`.
+ *
  * @param canvas A pointer to a `plutovg_canvas_t` object.
  * @param line_join The line join style.
  */
@@ -1612,6 +1869,9 @@ PLUTOVG_API void plutovg_canvas_set_line_join(plutovg_canvas_t* canvas, plutovg_
 
 /**
  * @brief Retrieves the current line join style.
+ *
+ * If not set, the default line join is `PLUTOVG_LINE_JOIN_MITER`.
+ *
  * @param canvas A pointer to a `plutovg_canvas_t` object.
  * @return The current line join style.
  */
@@ -1619,6 +1879,9 @@ PLUTOVG_API plutovg_line_join_t plutovg_canvas_get_line_join(const plutovg_canva
 
 /**
  * @brief Sets the miter limit.
+ *
+ * If not set, the default miter limit is 10.
+ *
  * @param canvas A pointer to a `plutovg_canvas_t` object.
  * @param miter_limit The miter limit value.
  */
@@ -1626,6 +1889,9 @@ PLUTOVG_API void plutovg_canvas_set_miter_limit(plutovg_canvas_t* canvas, float 
 
 /**
  * @brief Retrieves the current miter limit.
+ *
+ * If not set, the default miter limit is 10.
+ *
  * @param canvas A pointer to a `plutovg_canvas_t` object.
  * @return The current miter limit value.
  */
@@ -1633,6 +1899,9 @@ PLUTOVG_API float plutovg_canvas_get_miter_limit(const plutovg_canvas_t* canvas)
 
 /**
  * @brief Sets the dash pattern.
+ *
+ * If not set, the default dash offset is 0, and the default dash array is `NULL`.
+ *
  * @param canvas A pointer to a `plutovg_canvas_t` object.
  * @param offset The dash offset.
  * @param dashes Array of dash lengths.
@@ -1642,6 +1911,9 @@ PLUTOVG_API void plutovg_canvas_set_dash(plutovg_canvas_t* canvas, float offset,
 
 /**
  * @brief Sets the dash offset.
+ *
+ * If not set, the default dash offset is 0.
+ *
  * @param canvas A pointer to a `plutovg_canvas_t` object.
  * @param offset The dash offset.
  */
@@ -1649,6 +1921,9 @@ PLUTOVG_API void plutovg_canvas_set_dash_offset(plutovg_canvas_t* canvas, float 
 
 /**
  * @brief Retrieves the current dash offset.
+ *
+ * If not set, the default dash offset is 0.
+ *
  * @param canvas A pointer to a `plutovg_canvas_t` object.
  * @return The current dash offset.
  */
@@ -1656,6 +1931,9 @@ PLUTOVG_API float plutovg_canvas_get_dash_offset(const plutovg_canvas_t* canvas)
 
 /**
  * @brief Sets the dash pattern.
+ *
+ * If not set, the default dash array is `NULL`.
+ *
  * @param canvas A pointer to a `plutovg_canvas_t` object.
  * @param dashes Array of dash lengths.
  * @param ndashes Number of dash lengths.
@@ -1664,6 +1942,9 @@ PLUTOVG_API void plutovg_canvas_set_dash_array(plutovg_canvas_t* canvas, const f
 
 /**
  * @brief Retrieves the current dash pattern.
+ *
+ * If not set, the default dash array is `NULL`.
+ *
  * @param canvas A pointer to a `plutovg_canvas_t` object.
  * @param dashes Pointer to store the dash array.
  * @return The number of dash lengths.
@@ -1950,28 +2231,94 @@ PLUTOVG_API void plutovg_canvas_get_current_point(const plutovg_canvas_t* canvas
 PLUTOVG_API plutovg_path_t* plutovg_canvas_get_path(const plutovg_canvas_t* canvas);
 
 /**
- * @brief Gets the bounding box of the filled region.
+ * @brief Tests whether a point lies within the current fill region.
+ *
+ * Determines whether the point at coordinates `(x, y)` falls within the area
+ * that would be filled by a `plutovg_canvas_fill()` operation, given the current path,
+ * fill rule, and transformation state.
+ *
+ * @note Clipping and surface dimensions are not considered in this test.
  *
  * @param canvas A pointer to a `plutovg_canvas_t` object.
- * @param extents The bounding box of the filled region.
+ * @param x The X coordinate of the point, in user space.
+ * @param y The Y coordinate of the point, in user space.
+ * @return `true` if the point is within the fill region, `false` otherwise.
  */
-PLUTOVG_API void plutovg_canvas_fill_extents(const plutovg_canvas_t* canvas, plutovg_rect_t* extents);
+PLUTOVG_API bool plutovg_canvas_fill_contains(plutovg_canvas_t* canvas, float x, float y);
 
 /**
- * @brief Gets the bounding box of the stroked region.
+ * @brief Tests whether a point lies within the current stroke region.
+ *
+ * Determines whether the point at coordinates `(x, y)` falls within the area
+ * that would be stroked by a `plutovg_canvas_stroke()` operation, given the current path,
+ * stroke width, joins, caps, miter limit, dash pattern, and transformation state.
+ *
+ * @note Clipping and surface dimensions are not considered in this test.
  *
  * @param canvas A pointer to a `plutovg_canvas_t` object.
- * @param extents The bounding box of the stroked region.
+ * @param x The X coordinate of the point, in user space.
+ * @param y The Y coordinate of the point, in user space.
+ * @return `true` if the point is within the stroke region, `false` otherwise.
  */
-PLUTOVG_API void plutovg_canvas_stroke_extents(const plutovg_canvas_t* canvas, plutovg_rect_t* extents);
+PLUTOVG_API bool plutovg_canvas_stroke_contains(plutovg_canvas_t* canvas, float x, float y);
 
 /**
- * @brief Gets the bounding box of the clipped region.
+ * @brief Tests whether a point lies within the current clipping region.
+ *
+ * Determines whether the point at coordinates `(x, y)` falls within the active clipping
+ * region on the canvas.
+ *
+ * If no clipping is applied, the default clipping region covers the entire canvas
+ * area starting at `(0, 0)` with width and height equal to the canvas dimensions.
  *
  * @param canvas A pointer to a `plutovg_canvas_t` object.
- * @param extents The bounding box of the clipped region.
+ * @param x The X coordinate of the point, in user space.
+ * @param y The Y coordinate of the point, in user space.
+ * @return `true` if the point is within the clipping region, `false` otherwise.
  */
-PLUTOVG_API void plutovg_canvas_clip_extents(const plutovg_canvas_t* canvas, plutovg_rect_t* extents);
+PLUTOVG_API bool plutovg_canvas_clip_contains(plutovg_canvas_t* canvas, float x, float y);
+
+/**
+ * @brief Computes the bounding box of the area that would be affected by a fill operation.
+ *
+ * Computes an axis-aligned bounding box in user space that encloses the area
+ * which would be affected by a fill operation (`plutovg_canvas_fill()`) given the current path,
+ * fill rule, and transformation state.
+ * 
+ * @note Clipping and surface dimensions are not considered in this calculation.
+ *
+ * @param canvas A pointer to a `plutovg_canvas_t` object.
+ * @param extents A pointer to a `plutovg_rect_t` structure that receives the bounding box.
+ */
+PLUTOVG_API void plutovg_canvas_fill_extents(plutovg_canvas_t* canvas, plutovg_rect_t* extents);
+
+/**
+ * @brief Computes the bounding box of the area that would be affected by a stroke operation.
+ *
+ * Computes an axis-aligned bounding box in user space that encloses the area
+ * which would be affected by a stroke operation (`plutovg_canvas_stroke()`) given the current path,
+ * stroke width, joins, caps, miter limit, dash pattern, and transformation state.
+ *
+ * @note Clipping and surface dimensions are not considered in this calculation.
+ *
+ * @param canvas A pointer to a `plutovg_canvas_t` object.
+ * @param extents A pointer to a `plutovg_rect_t` structure that receives the bounding box.
+ */
+PLUTOVG_API void plutovg_canvas_stroke_extents(plutovg_canvas_t* canvas, plutovg_rect_t* extents);
+
+/**
+ * @brief Gets the bounding box of the current clipping region.
+ *
+ * Computes an axis-aligned bounding box in user space that encloses the currently active
+ * clipping region on the canvas.
+ *
+ * If no clip is applied, the returned rectangle covers the entire canvas area,
+ * starting at `(0, 0)` with width and height equal to the canvas dimensions.
+ *
+ * @param canvas A pointer to a `plutovg_canvas_t` object.
+ * @param extents A pointer to a `plutovg_rect_t` structure that receives the bounding box.
+ */
+PLUTOVG_API void plutovg_canvas_clip_extents(plutovg_canvas_t* canvas, plutovg_rect_t* extents);
 
 /**
  * @brief A drawing operator that fills the current path according to the current fill rule.

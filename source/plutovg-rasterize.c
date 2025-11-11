@@ -55,6 +55,23 @@ void plutovg_span_buffer_copy(plutovg_span_buffer_t* span_buffer, const plutovg_
     span_buffer->h = source->h;
 }
 
+bool plutovg_span_buffer_contains(const plutovg_span_buffer_t* span_buffer, float x, float y)
+{
+    const int ix = (int)floorf(x);
+    const int iy = (int)floorf(y);
+
+    for(int i = 0; i < span_buffer->spans.size; i++) {
+        plutovg_span_t* span = &span_buffer->spans.data[i];
+        if(span->y != iy)
+            continue;
+        if(ix >= span->x && ix < (span->x + span->len)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 static void plutovg_span_buffer_update_extents(plutovg_span_buffer_t* span_buffer)
 {
     if(span_buffer->w != -1 && span_buffer->h != -1)
@@ -135,7 +152,7 @@ void plutovg_span_buffer_intersect(plutovg_span_buffer_t* span_buffer, const plu
             span->x = x;
             span->len = len;
             span->y = a_spans->y;
-            span->coverage = plutovg_div255(a_spans->coverage * b_spans->coverage);
+            span->coverage = (a_spans->coverage * b_spans->coverage) / 255;
             span_buffer->spans.size += 1;
         }
 
@@ -172,7 +189,7 @@ static void ft_outline_destroy(PVG_FT_Outline* outline)
     free(outline);
 }
 
-#define FT_COORD(x) (PVG_FT_Pos)((x) * 64)
+#define FT_COORD(x) (PVG_FT_Pos)(roundf(x * 64))
 static void ft_outline_move_to(PVG_FT_Outline* ft, float x, float y)
 {
     ft->points[ft->n_points].x = FT_COORD(x);
@@ -317,10 +334,11 @@ static PVG_FT_Outline* ft_outline_convert_stroke(const plutovg_path_t* path, con
         break;
     }
 
-    PVG_FT_Outline* outline = ft_outline_convert_dash(path, matrix, &stroke_data->dash);
     PVG_FT_Stroker stroker;
     PVG_FT_Stroker_New(&stroker);
     PVG_FT_Stroker_Set(stroker, ftWidth, ftCap, ftJoin, ftMiterLimit);
+
+    PVG_FT_Outline* outline = ft_outline_convert_dash(path, matrix, &stroke_data->dash);
     PVG_FT_Stroker_ParseOutline(stroker, outline);
 
     PVG_FT_UInt points;
@@ -329,6 +347,7 @@ static PVG_FT_Outline* ft_outline_convert_stroke(const plutovg_path_t* path, con
 
     PVG_FT_Outline* stroke_outline = ft_outline_create(points, contours);
     PVG_FT_Stroker_Export(stroker, stroke_outline);
+
     PVG_FT_Stroker_Done(stroker);
     ft_outline_destroy(outline);
     return stroke_outline;
@@ -342,18 +361,6 @@ static void spans_generation_callback(int count, const PVG_FT_Span* spans, void*
 
 void plutovg_rasterize(plutovg_span_buffer_t* span_buffer, const plutovg_path_t* path, const plutovg_matrix_t* matrix, const plutovg_rect_t* clip_rect, const plutovg_stroke_data_t* stroke_data, plutovg_fill_rule_t winding)
 {
-    PVG_FT_Raster_Params params;
-    params.flags = PVG_FT_RASTER_FLAG_DIRECT | PVG_FT_RASTER_FLAG_AA;
-    params.gray_spans = spans_generation_callback;
-    params.user = span_buffer;
-    if(clip_rect) {
-        params.flags |= PVG_FT_RASTER_FLAG_CLIP;
-        params.clip_box.xMin = (PVG_FT_Pos)clip_rect->x;
-        params.clip_box.yMin = (PVG_FT_Pos)clip_rect->y;
-        params.clip_box.xMax = (PVG_FT_Pos)(clip_rect->x + clip_rect->w);
-        params.clip_box.yMax = (PVG_FT_Pos)(clip_rect->y + clip_rect->h);
-    }
-
     PVG_FT_Outline* outline = ft_outline_convert(path, matrix, stroke_data);
     if(stroke_data) {
         outline->flags = PVG_FT_OUTLINE_NONE;
@@ -368,8 +375,20 @@ void plutovg_rasterize(plutovg_span_buffer_t* span_buffer, const plutovg_path_t*
         }
     }
 
-    plutovg_span_buffer_reset(span_buffer);
+    PVG_FT_Raster_Params params;
+    params.flags = PVG_FT_RASTER_FLAG_DIRECT | PVG_FT_RASTER_FLAG_AA;
+    params.gray_spans = spans_generation_callback;
+    params.user = span_buffer;
     params.source = outline;
+    if(clip_rect) {
+        params.flags |= PVG_FT_RASTER_FLAG_CLIP;
+        params.clip_box.xMin = (PVG_FT_Pos)clip_rect->x;
+        params.clip_box.yMin = (PVG_FT_Pos)clip_rect->y;
+        params.clip_box.xMax = (PVG_FT_Pos)(clip_rect->x + clip_rect->w);
+        params.clip_box.yMax = (PVG_FT_Pos)(clip_rect->y + clip_rect->h);
+    }
+
+    plutovg_span_buffer_reset(span_buffer);
     PVG_FT_Raster_Render(&params);
     ft_outline_destroy(outline);
 }

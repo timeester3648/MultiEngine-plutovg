@@ -11,13 +11,14 @@
 
 static plutovg_surface_t* plutovg_surface_create_uninitialized(int width, int height)
 {
-    if(width > STBI_MAX_DIMENSIONS || height > STBI_MAX_DIMENSIONS)
+    static const int kMaxSize = 1 << 15;
+    if(width <= 0 || height <= 0 || width >= kMaxSize || height >= kMaxSize)
         return NULL;
     const size_t size = width * height * 4;
     plutovg_surface_t* surface = malloc(size + sizeof(plutovg_surface_t));
     if(surface == NULL)
         return NULL;
-    surface->ref_count = 1;
+    plutovg_init_reference(surface);
     surface->width = width;
     surface->height = height;
     surface->stride = width * 4;
@@ -36,7 +37,7 @@ plutovg_surface_t* plutovg_surface_create(int width, int height)
 plutovg_surface_t* plutovg_surface_create_for_data(unsigned char* data, int width, int height, int stride)
 {
     plutovg_surface_t* surface = malloc(sizeof(plutovg_surface_t));
-    surface->ref_count = 1;
+    plutovg_init_reference(surface);
     surface->width = width;
     surface->height = height;
     surface->stride = stride;
@@ -149,26 +150,20 @@ cleanup:
 
 plutovg_surface_t* plutovg_surface_reference(plutovg_surface_t* surface)
 {
-    if(surface == NULL)
-        return NULL;
-    ++surface->ref_count;
+    plutovg_increment_reference(surface);
     return surface;
 }
 
 void plutovg_surface_destroy(plutovg_surface_t* surface)
 {
-    if(surface == NULL)
-        return;
-    if(--surface->ref_count == 0) {
+    if(plutovg_destroy_reference(surface)) {
         free(surface);
     }
 }
 
 int plutovg_surface_get_reference_count(const plutovg_surface_t* surface)
 {
-    if(surface)
-        return surface->ref_count;
-    return 0;
+    return plutovg_get_reference_count(surface);
 }
 
 unsigned char* plutovg_surface_get_data(const plutovg_surface_t* surface)
@@ -196,7 +191,7 @@ void plutovg_surface_clear(plutovg_surface_t* surface, const plutovg_color_t* co
     uint32_t pixel = plutovg_premultiply_argb(plutovg_color_to_argb32(color));
     for(int y = 0; y < surface->height; y++) {
         uint32_t* pixels = (uint32_t*)(surface->data + surface->stride * y);
-        plutovg_memfill32(pixels, pixel, surface->width);
+        plutovg_memfill32(pixels, surface->width, pixel);
     }
 }
 
@@ -246,12 +241,15 @@ void plutovg_convert_argb_to_rgba(unsigned char* dst, const unsigned char* src, 
 {
     for(int y = 0; y < height; y++) {
         const uint32_t* src_row = (const uint32_t*)(src + stride * y);
-        uint32_t* dst_row = (uint32_t*)(dst + stride * y);
+        unsigned char* dst_row = dst + stride * y;
         for(int x = 0; x < width; x++) {
             uint32_t pixel = src_row[x];
             uint32_t a = (pixel >> 24) & 0xFF;
             if(a == 0) {
-                dst_row[x] = 0x00000000;
+                *dst_row++ = 0;
+                *dst_row++ = 0;
+                *dst_row++ = 0;
+                *dst_row++ = 0;
             } else {
                 uint32_t r = (pixel >> 16) & 0xFF;
                 uint32_t g = (pixel >> 8) & 0xFF;
@@ -262,7 +260,10 @@ void plutovg_convert_argb_to_rgba(unsigned char* dst, const unsigned char* src, 
                     b = (b * 255) / a;
                 }
 
-                dst_row[x] = (a << 24) | (b << 16) | (g << 8) | r;
+                *dst_row++ = r;
+                *dst_row++ = g;
+                *dst_row++ = b;
+                *dst_row++ = a;
             }
         }
     }
@@ -271,17 +272,16 @@ void plutovg_convert_argb_to_rgba(unsigned char* dst, const unsigned char* src, 
 void plutovg_convert_rgba_to_argb(unsigned char* dst, const unsigned char* src, int width, int height, int stride)
 {
     for(int y = 0; y < height; y++) {
-        const uint32_t* src_row = (const uint32_t*)(src + stride * y);
+        const unsigned char* src_row = src + stride * y;
         uint32_t* dst_row = (uint32_t*)(dst + stride * y);
         for(int x = 0; x < width; x++) {
-            uint32_t pixel = src_row[x];
-            uint32_t a = (pixel >> 24) & 0xFF;
+            uint32_t a = src_row[4 * x + 3];
             if(a == 0) {
                 dst_row[x] = 0x00000000;
             } else {
-                uint32_t b = (pixel >> 16) & 0xFF;
-                uint32_t g = (pixel >> 8) & 0xFF;
-                uint32_t r = (pixel >> 0) & 0xFF;
+                uint32_t r = src_row[4 * x + 0];
+                uint32_t g = src_row[4 * x + 1];
+                uint32_t b = src_row[4 * x + 2];
                 if(a != 255) {
                     r = (r * a) / 255;
                     g = (g * a) / 255;

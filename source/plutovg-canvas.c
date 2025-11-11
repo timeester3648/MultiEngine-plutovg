@@ -11,70 +11,69 @@ const char* plutovg_version_string(void)
     return PLUTOVG_VERSION_STRING;
 }
 
-static void plutovg_stroke_data_reset(plutovg_stroke_data_t* stroke)
-{
-    plutovg_array_clear(stroke->dash.array);
-    stroke->dash.offset = 0.f;
-    stroke->style.width = 1.f;
-    stroke->style.cap = PLUTOVG_LINE_CAP_BUTT;
-    stroke->style.join = PLUTOVG_LINE_JOIN_MITER;
-    stroke->style.miter_limit = 10.f;
-}
+#define PLUTOVG_DEFAULT_STROKE_STYLE ((plutovg_stroke_style_t){1.f, PLUTOVG_LINE_CAP_BUTT, PLUTOVG_LINE_JOIN_MITER, 10.f})
 
-static void plutovg_stroke_data_copy(plutovg_stroke_data_t* stroke, const plutovg_stroke_data_t* source)
+static plutovg_state_t* plutovg_state_create(void)
 {
-    plutovg_array_clear(stroke->dash.array);
-    plutovg_array_append(stroke->dash.array, source->dash.array);
-    stroke->dash.offset = source->dash.offset;
-    stroke->style.width = source->style.width;
-    stroke->style.cap = source->style.cap;
-    stroke->style.join = source->style.join;
-    stroke->style.miter_limit = source->style.miter_limit;
+    plutovg_state_t* state = malloc(sizeof(plutovg_state_t));
+    state->paint = NULL;
+    state->font_face = NULL;
+    state->color = PLUTOVG_BLACK_COLOR;
+    state->matrix = PLUTOVG_IDENTITY_MATRIX;
+    state->stroke.style = PLUTOVG_DEFAULT_STROKE_STYLE;
+    state->stroke.dash.offset = 0.f;
+    plutovg_array_init(state->stroke.dash.array);
+    plutovg_span_buffer_init(&state->clip_spans);
+    state->winding = PLUTOVG_FILL_RULE_NON_ZERO;
+    state->op = PLUTOVG_OPERATOR_SRC_OVER;
+    state->font_size = 12.f;
+    state->opacity = 1.f;
+    state->clipping = false;
+    state->next = NULL;
+    return state;
 }
 
 static void plutovg_state_reset(plutovg_state_t* state)
 {
     plutovg_paint_destroy(state->paint);
-    plutovg_matrix_init_identity(&state->matrix);
-    plutovg_stroke_data_reset(&state->stroke);
-    plutovg_span_buffer_reset(&state->clip_spans);
     plutovg_font_face_destroy(state->font_face);
     state->paint = NULL;
-    state->color = PLUTOVG_BLACK_COLOR;
     state->font_face = NULL;
-    state->font_size = 12.f;
-    state->op = PLUTOVG_OPERATOR_SRC_OVER;
+    state->color = PLUTOVG_BLACK_COLOR;
+    state->matrix = PLUTOVG_IDENTITY_MATRIX;
+    state->stroke.style = PLUTOVG_DEFAULT_STROKE_STYLE;
+    state->stroke.dash.offset = 0.f;
+    plutovg_array_clear(state->stroke.dash.array);
+    plutovg_span_buffer_reset(&state->clip_spans);
     state->winding = PLUTOVG_FILL_RULE_NON_ZERO;
-    state->clipping = false;
+    state->op = PLUTOVG_OPERATOR_SRC_OVER;
+    state->font_size = 12.f;
     state->opacity = 1.f;
+    state->clipping = false;
 }
 
 static void plutovg_state_copy(plutovg_state_t* state, const plutovg_state_t* source)
 {
-    plutovg_stroke_data_copy(&state->stroke, &source->stroke);
-    plutovg_span_buffer_copy(&state->clip_spans, &source->clip_spans);
     state->paint = plutovg_paint_reference(source->paint);
     state->font_face = plutovg_font_face_reference(source->font_face);
     state->color = source->color;
     state->matrix = source->matrix;
-    state->font_size = source->font_size;
-    state->op = source->op;
+    state->stroke.style = source->stroke.style;
+    state->stroke.dash.offset = source->stroke.dash.offset;
+    plutovg_array_clear(state->stroke.dash.array);
+    plutovg_array_append(state->stroke.dash.array, source->stroke.dash.array);
+    plutovg_span_buffer_copy(&state->clip_spans, &source->clip_spans);
     state->winding = source->winding;
-    state->clipping = source->clipping;
+    state->op = source->op;
+    state->font_size = source->font_size;
     state->opacity = source->opacity;
-}
-
-static plutovg_state_t* plutovg_state_create(void)
-{
-    plutovg_state_t* state = malloc(sizeof(plutovg_state_t));
-    memset(state, 0, sizeof(plutovg_state_t));
-    plutovg_state_reset(state);
-    return state;
+    state->clipping = source->clipping;
 }
 
 static void plutovg_state_destroy(plutovg_state_t* state)
 {
     plutovg_paint_destroy(state->paint);
+    plutovg_font_face_destroy(state->font_face);
     plutovg_array_destroy(state->stroke.dash.array);
     plutovg_span_buffer_destroy(&state->clip_spans);
     free(state);
@@ -83,11 +82,12 @@ static void plutovg_state_destroy(plutovg_state_t* state)
 plutovg_canvas_t* plutovg_canvas_create(plutovg_surface_t* surface)
 {
     plutovg_canvas_t* canvas = malloc(sizeof(plutovg_canvas_t));
-    canvas->ref_count = 1;
+    plutovg_init_reference(canvas);
     canvas->surface = plutovg_surface_reference(surface);
     canvas->path = plutovg_path_create();
     canvas->state = plutovg_state_create();
     canvas->freed_state = NULL;
+    canvas->face_cache = NULL;
     canvas->clip_rect = PLUTOVG_MAKE_RECT(0, 0, surface->width, surface->height);
     plutovg_span_buffer_init(&canvas->clip_spans);
     plutovg_span_buffer_init(&canvas->fill_spans);
@@ -96,17 +96,13 @@ plutovg_canvas_t* plutovg_canvas_create(plutovg_surface_t* surface)
 
 plutovg_canvas_t* plutovg_canvas_reference(plutovg_canvas_t* canvas)
 {
-    if(canvas == NULL)
-        return NULL;
-    ++canvas->ref_count;
+    plutovg_increment_reference(canvas);
     return canvas;
 }
 
 void plutovg_canvas_destroy(plutovg_canvas_t* canvas)
 {
-    if(canvas == NULL)
-        return;
-    if(--canvas->ref_count == 0) {
+    if(plutovg_destroy_reference(canvas)) {
         while(canvas->state) {
             plutovg_state_t* state = canvas->state;
             canvas->state = state->next;
@@ -119,6 +115,7 @@ void plutovg_canvas_destroy(plutovg_canvas_t* canvas)
             plutovg_state_destroy(state);
         }
 
+        plutovg_font_face_cache_destroy(canvas->face_cache);
         plutovg_span_buffer_destroy(&canvas->fill_spans);
         plutovg_span_buffer_destroy(&canvas->clip_spans);
         plutovg_surface_destroy(canvas->surface);
@@ -129,9 +126,7 @@ void plutovg_canvas_destroy(plutovg_canvas_t* canvas)
 
 int plutovg_canvas_get_reference_count(const plutovg_canvas_t* canvas)
 {
-    if(canvas == NULL)
-        return 0;
-    return canvas->ref_count;
+    return plutovg_get_reference_count(canvas);
 }
 
 plutovg_surface_t* plutovg_canvas_get_surface(const plutovg_canvas_t* canvas)
@@ -211,6 +206,43 @@ plutovg_paint_t* plutovg_canvas_get_paint(const plutovg_canvas_t* canvas, plutov
     if(color)
         *color = canvas->state->color;
     return canvas->state->paint;
+}
+
+void plutovg_canvas_set_font_face_cache(plutovg_canvas_t* canvas, plutovg_font_face_cache_t* cache)
+{
+    cache = plutovg_font_face_cache_reference(cache);
+    plutovg_font_face_cache_destroy(canvas->face_cache);
+    canvas->face_cache = cache;
+}
+
+plutovg_font_face_cache_t* plutovg_canvas_get_font_face_cache(const plutovg_canvas_t* canvas)
+{
+    return canvas->face_cache;
+}
+
+void plutovg_canvas_add_font_face(plutovg_canvas_t* canvas, const char* family, bool bold, bool italic, plutovg_font_face_t* face)
+{
+    if(canvas->face_cache == NULL)
+        canvas->face_cache = plutovg_font_face_cache_create();
+    plutovg_font_face_cache_add(canvas->face_cache, family, bold, italic, face);
+}
+
+bool plutovg_canvas_add_font_file(plutovg_canvas_t* canvas, const char* family, bool bold, bool italic, const char* filename, int ttcindex)
+{
+    if(canvas->face_cache == NULL)
+        canvas->face_cache = plutovg_font_face_cache_create();
+    return plutovg_font_face_cache_add_file(canvas->face_cache, family, bold, italic, filename, ttcindex);
+}
+
+bool plutovg_canvas_select_font_face(plutovg_canvas_t* canvas, const char* family, bool bold, bool italic)
+{
+    if(canvas->face_cache == NULL)
+        return false;
+    plutovg_font_face_t* face = plutovg_font_face_cache_get(canvas->face_cache, family, bold, italic);
+    if(face == NULL)
+        return false;
+    plutovg_canvas_set_font_face(canvas, face);
+    return true;
 }
 
 void plutovg_canvas_set_font(plutovg_canvas_t* canvas, plutovg_font_face_t* face, float size)
@@ -330,9 +362,7 @@ float plutovg_canvas_get_dash_offset(const plutovg_canvas_t* canvas)
 void plutovg_canvas_set_dash_array(plutovg_canvas_t* canvas, const float* dashes, int ndashes)
 {
     plutovg_array_clear(canvas->state->stroke.dash.array);
-    if(dashes && ndashes > 0) {
-        plutovg_array_append_data(canvas->state->stroke.dash.array, dashes, ndashes);
-    }
+    plutovg_array_append_data(canvas->state->stroke.dash.array, dashes, ndashes);
 }
 
 int plutovg_canvas_get_dash_array(const plutovg_canvas_t* canvas, const float** dashes)
@@ -472,33 +502,45 @@ plutovg_path_t* plutovg_canvas_get_path(const plutovg_canvas_t* canvas)
     return canvas->path;
 }
 
-void plutovg_canvas_fill_extents(const plutovg_canvas_t* canvas, plutovg_rect_t* extents)
+bool plutovg_canvas_fill_contains(plutovg_canvas_t* canvas, float x, float y)
 {
-    plutovg_path_extents(canvas->path, extents, true);
-    plutovg_canvas_map_rect(canvas, extents, extents);
+    plutovg_rasterize(&canvas->fill_spans, canvas->path, &canvas->state->matrix, NULL, NULL, canvas->state->winding);
+    return plutovg_span_buffer_contains(&canvas->fill_spans, x, y);
 }
 
-void plutovg_canvas_stroke_extents(const plutovg_canvas_t* canvas, plutovg_rect_t* extents)
+bool plutovg_canvas_stroke_contains(plutovg_canvas_t* canvas, float x, float y)
 {
-    plutovg_stroke_data_t* stroke = &canvas->state->stroke;
-    float cap_limit = stroke->style.width / 2.f;
-    if(stroke->style.cap == PLUTOVG_LINE_CAP_SQUARE)
-        cap_limit *= PLUTOVG_SQRT2;
-    float join_limit = stroke->style.width / 2.f;
-    if(stroke->style.join == PLUTOVG_LINE_JOIN_MITER) {
-        join_limit *= stroke->style.miter_limit;
+    plutovg_rasterize(&canvas->fill_spans, canvas->path, &canvas->state->matrix, NULL, NULL, canvas->state->winding);
+    return plutovg_span_buffer_contains(&canvas->fill_spans, x, y);
+}
+
+bool plutovg_canvas_clip_contains(plutovg_canvas_t* canvas, float x, float y)
+{
+    if(canvas->state->clipping) {
+        return plutovg_span_buffer_contains(&canvas->state->clip_spans, x, y);
     }
 
-    float delta = plutovg_max(cap_limit, join_limit);
-    plutovg_path_extents(canvas->path, extents, true);
-    extents->x -= delta;
-    extents->y -= delta;
-    extents->w += delta * 2.f;
-    extents->h += delta * 2.f;
-    plutovg_canvas_map_rect(canvas, extents, extents);
+    float l = canvas->clip_rect.x;
+    float t = canvas->clip_rect.y;
+    float r = canvas->clip_rect.x + canvas->clip_rect.w;
+    float b = canvas->clip_rect.y + canvas->clip_rect.h;
+
+    return x >= l && x <= r && y >= t && y <= b;
 }
 
-void plutovg_canvas_clip_extents(const plutovg_canvas_t* canvas, plutovg_rect_t* extents)
+void plutovg_canvas_fill_extents(plutovg_canvas_t *canvas, plutovg_rect_t* extents)
+{
+    plutovg_rasterize(&canvas->fill_spans, canvas->path, &canvas->state->matrix, NULL, NULL, canvas->state->winding);
+    plutovg_span_buffer_extents(&canvas->fill_spans, extents);
+}
+
+void plutovg_canvas_stroke_extents(plutovg_canvas_t *canvas, plutovg_rect_t* extents)
+{
+    plutovg_rasterize(&canvas->fill_spans, canvas->path, &canvas->state->matrix, NULL, &canvas->state->stroke, PLUTOVG_FILL_RULE_NON_ZERO);
+    plutovg_span_buffer_extents(&canvas->fill_spans, extents);
+}
+
+void plutovg_canvas_clip_extents(plutovg_canvas_t* canvas, plutovg_rect_t* extents)
 {
     if(canvas->state->clipping) {
         plutovg_span_buffer_extents(&canvas->state->clip_spans, extents);
